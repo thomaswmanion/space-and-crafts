@@ -1,0 +1,38 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: dd55a64a3981396478ca06e7780d4093, type: 3}
+  m_Name: CameraSettings
+  m_EditorClassIdentifier: Assembly-CSharp::SpaceAndCrafts.Cameras.CameraSettings
+  Distance: 6.2
+  Height: 2.03
+  HorizontalOffset: 1.15
+  FocusHeight: 0.78
+  FieldOfView: 48
+  MinPitch: -18
+  MaxPitch: 52
+  FollowSmoothTime: 0.1
+  LookSmoothTime: 0.055
+  OrbitSensitivity: 128
+  PitchSensitivity: 90
+  MouseLookSensitivity: 0.11
+  GamepadLookMultiplier: 1.25
+  AutoYawEnabled: 1
+  AutoYawMoveThreshold: 0.35
+  AutoYawLookCancel: 0.08
+  AutoYawDelay: 0.18
+  AutoYawStrength: 2.4
+  CollisionRadius: 0.25
+  CollisionBuffer: 0.15
+  MinimumCollisionDistance: 5.2
+  CollisionMask:
+    serializedVersion: 2
+    m_Bits: 4294967295

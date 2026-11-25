@@ -6,9 +6,12 @@ EditorBuildSettings:
   serializedVersion: 2
   m_Scenes:
   - enabled: 1
-    path: Assets/Scenes/Home.unity
-    guid: 35a9c58e15748744cb8469436e0199f2
+    path: Assets/SpaceAndCrafts/Scenes/Menus/HomeMenu.unity
+    guid: dcfa7b978d5d8754782a3f8073fa62d7
   - enabled: 1
-    path: Assets/Scenes/World01_Test.unity
-    guid: e3297afc32cc4614e9fe69b8ec6a0f42
+    path: Assets/SpaceAndCrafts/Scenes/RainbowWorld/RainbowWorld_Arrival.unity
+    guid: 8d72b929ddc38c14f8b59449a8a489bf
+  - enabled: 1
+    path: Assets/SpaceAndCrafts/Scenes/Menus/WorkshopHub.unity
+    guid: 3136ee39f4954654b8720e674d377047
   m_configObjects: {}

@@ -1,0 +1,26 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: fcf7ef3321d2ba345a76839304d70f54, type: 3}
+  m_Name: World_06_frosted_filament
+  m_EditorClassIdentifier: Assembly-CSharp::SpaceAndCrafts.Core.WorldDefinition
+  worldId: frosted_filament
+  displayName: "Mountain Lands \u2014 Frosted Filament"
+  fantasyBlurb: High in the Mountain Lands, icy craft threads stretch between frozen
+    looms.
+  inventionId: heat_tape_torch
+  inventionDisplayName: Heat-Tape Torch
+  inventionBlurb: Warm tape beam that melts freeze locks.
+  scenePath: Assets/SpaceAndCrafts/Scenes/Worlds/World06_FrostedFilament.unity
+  worldIndex: 6
+  accentColor: {r: 0.65, g: 0.9, b: 1, a: 1}
+  systemsPlayable: 0
+  visualsMeetBar: 0

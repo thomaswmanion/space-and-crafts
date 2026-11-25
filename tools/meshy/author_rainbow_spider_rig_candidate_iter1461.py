@@ -1,0 +1,420 @@
+import bpy
+import math
+import os
+from mathutils import Vector
+
+
+SRC = os.path.abspath(
+    "Assets/SpaceAndCrafts/Art/Commissioned/Enemies/MeshySpenddown/"
+    "20261031_223339_rainbow-kingdom-spider-enemy_01a1952b/RainbowKingdomSpider.glb"
+)
+OUT = os.path.abspath(
+    "Assets/SpaceAndCrafts/Art/Commissioned/Enemies/MeshySpenddown/"
+    "20261101_rainbow-spider-rig-candidate-iter1461"
+)
+os.makedirs(OUT, exist_ok=True)
+
+# Start clean, then import the delivered single cohesive Meshy surface.
+bpy.ops.object.select_all(action="SELECT")
+bpy.ops.object.delete(use_global=False)
+bpy.ops.import_scene.gltf(filepath=SRC)
+meshes = [o for o in bpy.context.scene.objects if o.type == "MESH"]
+if len(meshes) != 1:
+    raise RuntimeError(f"Expected one imported cohesive mesh; got {len(meshes)}")
+mesh = meshes[0]
+mesh.name = "RainbowKingdomSpider_MeshySurface"
+mesh.data.name = "RainbowKingdomSpider_CohesiveMesh"
+
+# Inspection established local Z is vertical and the face points toward -Y (verified by Iter1445 axis sweep).
+# The mesh's low-vertex audit (Iter1460) shows front/rear toe groups near Y=±0.9
+# and the inner pair near Y=-0.45/+0.25; the older evenly-spaced rows weighted
+# upper legs as feet. Keep the four authored rows aligned to the delivered mesh.
+feet_y = [-0.86, -0.46, 0.28, 0.86]
+hip_x = [0.16, 0.16, 0.16, 0.16]
+knee_x = [0.29, 0.40, 0.40, 0.29]
+ankle_x = [0.43, 0.69, 0.74, 0.43]
+toe_x = [0.46, 0.82, 0.88, 0.46]
+arm_data = bpy.data.armatures.new("RainbowSpider_8LegRig")
+arm = bpy.data.objects.new("RainbowSpider_8LegRig", arm_data)
+bpy.context.collection.objects.link(arm)
+bpy.context.view_layer.objects.active = arm
+arm.select_set(True)
+mesh.select_set(False)
+bpy.ops.object.mode_set(mode="EDIT")
+root = arm_data.edit_bones.new("Body")
+root.head = (0.0, 0.0, 0.0)
+root.tail = (0.0, 0.0, 0.35)
+
+leg_specs = []
+for side in (-1, 1):
+    for row, yfoot in enumerate(feet_y):
+        tag = "L" if side < 0 else "R"
+        prefix = f"Leg_{tag}_{row}"
+        hip = Vector((side * hip_x[row], yfoot * 0.52, -0.12))
+        knee = Vector((side * knee_x[row], yfoot * 0.80, -0.24))
+        ankle = Vector((side * ankle_x[row], yfoot, -0.46))
+        toe = Vector((side * toe_x[row], yfoot * 1.04, -0.58))
+        chain = []
+        parent = root
+        for suffix, start, end in (
+            ("Upper", hip, knee), ("Lower", knee, ankle), ("Foot", ankle, toe)
+        ):
+            bone = arm_data.edit_bones.new(prefix + "_" + suffix)
+            bone.head, bone.tail, bone.parent = start, end, parent
+            bone.use_connect = suffix != "Upper"
+            chain.append((bone.name, Vector(start), Vector(end)))
+            parent = bone
+        target = arm_data.edit_bones.new(prefix + "_IK")
+        target.head = toe
+        target.tail = toe + Vector((0, 0, 0.07))
+        target.parent = root
+        target.use_deform = False
+        leg_specs.append({"tag": tag, "row": row, "y": yfoot,
+                          "side": side, "hip": hip, "knee": knee,
+                          "ankle": ankle, "toe": toe,
+                          "chain": chain, "target": target.name})
+bpy.ops.object.mode_set(mode="OBJECT")
+
+# Smooth distance-based weights keep the face/body on the root and feather each
+# limb into the nearest articulated chain, without splitting the source surface.
+groups = {b.name: mesh.vertex_groups.new(name=b.name) for b in arm_data.bones}
+segments = []
+for leg in leg_specs:
+    for bname, a, b in leg["chain"]:
+        segments.append((leg, bname, a, b))
+verts = mesh.data.vertices
+for v in verts:
+    p = v.co.copy()
+    core_metric = math.sqrt((p.x / 0.31) ** 2 + (p.y / 0.39) ** 2 + (max(0.0, -p.z) / 0.36) ** 2)
+    core = max(0.0, min(1.0, 1.0 - (core_metric - 0.72) / 0.82))
+    bone_scores = {}
+    for leg, bname, a, b in segments:
+        ab = b - a
+        t = max(0.0, min(1.0, (p - a).dot(ab) / max(ab.length_squared, 1e-8)))
+        d = (p - (a + t * ab)).length
+        is_foot = bname.endswith("_Foot")
+        influence_radius = 0.36 if is_foot else 0.26
+        if d < influence_radius:
+            # The source feet are unusually flat and their centerline sits above
+            # the visible sole. Broaden and strengthen the distal weights so each
+            # actual toe/sole region follows its own articulated foot bone.
+            spread = 0.18 if is_foot else 0.12
+            strength = 2.4 if is_foot else 1.0
+            score = strength * math.exp(-((d / spread) ** 2))
+            bone_scores[bname] = bone_scores.get(bname, 0.0) + score
+    body_score = 0.12 + core * 3.2
+    limb_scores = {
+        name: score * (1.0 - (0.45 if name.endswith("_Foot") else 0.92) * core)
+        for name, score in bone_scores.items()
+    }
+    total = body_score + sum(limb_scores.values())
+    groups["Body"].add([v.index], body_score / total, "REPLACE")
+    for name, score in limb_scores.items():
+        if score / total > 0.001:
+            groups[name].add([v.index], score / total, "REPLACE")
+# glTF skinning (and common game runtimes) evaluate four influences per vertex.
+# Keep the strongest four and normalize them to avoid silent exporter truncation.
+keep_by_group = {g.name: [] for g in mesh.vertex_groups}
+drop_by_group = {g.name: [] for g in mesh.vertex_groups}
+for v in verts:
+    ordered = sorted(v.groups, key=lambda item: item.weight, reverse=True)
+    kept = ordered[:4]
+    dropped = ordered[4:]
+    total = sum(item.weight for item in kept)
+    for item in kept:
+        keep_by_group[mesh.vertex_groups[item.group].name].append((v.index, item.weight / total))
+    for item in dropped:
+        drop_by_group[mesh.vertex_groups[item.group].name].append(v.index)
+for group in mesh.vertex_groups:
+    if drop_by_group[group.name]:
+        group.remove(drop_by_group[group.name])
+    for index, weight in keep_by_group[group.name]:
+        group.add([index], weight, "REPLACE")
+mesh.parent = arm
+mod = mesh.modifiers.new("RainbowSpider_Skin", "ARMATURE")
+mod.object = arm
+mod.use_deform_preserve_volume = True
+
+# Two-bone IK on each leg. The authored actions key only nondeforming IK goals
+# and the body bone; the source surface remains one continuous skinned mesh.
+bpy.context.view_layer.objects.active = arm
+bpy.ops.object.mode_set(mode="POSE")
+for pose_bone in arm.pose.bones:
+    # Every action keys rotation_euler for each pose bone. Keeping some bones in
+    # Blender's default quaternion mode created duplicate rotation channels and
+    # exporter warnings, even for bones the authored pose never rotates.
+    pose_bone.rotation_mode = "XYZ"
+for leg in leg_specs:
+    foot = arm.pose.bones[leg["chain"][2][0]]
+    ik = foot.constraints.new("IK")
+    ik.name = leg["chain"][0][0] + "_GroundContactIK"
+    ik.target = arm
+    ik.subtarget = leg["target"]
+    ik.chain_count = 3
+    ik.use_stretch = False
+    ik.influence = 1.0
+bpy.ops.object.mode_set(mode="OBJECT")
+
+scene = bpy.context.scene
+scene.render.fps = 30
+scene.frame_start = 1
+
+def correct_walk_stance_contact(frame, frames):
+    """Solve each stance toe against its own bind-pose sole height before keying."""
+    t = (frame - frames[0]) / max(1, frames[-1] - frames[0])
+    stance_legs = []
+    for leg in leg_specs:
+        group = (leg["row"] % 2) ^ (1 if leg["side"] > 0 else 0)
+        phase = t * math.tau + group * math.pi
+        if math.sin(phase) <= 0.0:
+            stance_legs.append(leg)
+
+    support_indices = {}
+    support_heights = {}
+    # The source mesh's global lowest sole is the common level-ground reference.
+    # Align every foot group to that height so planted legs do not each preserve
+    # a different bind-pose clearance.
+    support_plane_z = min((mesh.matrix_world @ vert.co).z for vert in mesh.data.vertices)
+    for leg in stance_legs:
+        bone_name = leg["chain"][2][0]
+        group = mesh.vertex_groups.get(bone_name)
+        indices = []
+        if group is not None:
+            group_index = group.index
+            for vert in verts:
+                if any(item.group == group_index and item.weight >= 0.20 for item in vert.groups):
+                    indices.append(vert.index)
+        if not indices:
+            continue
+        support_indices[leg["target"]] = indices
+        support_heights[leg["target"]] = support_plane_z
+
+    def measure_mins():
+        bpy.context.view_layer.update()
+        depsgraph = bpy.context.evaluated_depsgraph_get()
+        evaluated = mesh.evaluated_get(depsgraph)
+        evaluated_mesh = evaluated.to_mesh()
+        points = [evaluated.matrix_world @ v.co for v in evaluated_mesh.vertices]
+        mins = {name: min(points[i].z for i in indices)
+                for name, indices in support_indices.items()}
+        evaluated.to_mesh_clear()
+        return mins
+
+    # Solve in the target bones' actual local channels. Their rest-bone basis is
+    # not necessarily the same as the pose-location basis, so choose the most
+    # vertical local axis from a finite-difference response and converge against
+    # the evaluated skinned soles rather than assuming local Z == world Z.
+    if not support_indices:
+        return
+    targets = {name: arm.pose.bones[name] for name in support_indices}
+    delta = 0.004
+    for _ in range(4):
+        current = measure_mins()
+        errors = {name: support_heights[name] - current[name] for name in targets}
+        derivatives = {name: [0.0, 0.0, 0.0] for name in targets}
+        for axis in range(3):
+            for target in targets.values():
+                target.location[axis] += delta
+            shifted = measure_mins()
+            for name in targets:
+                derivatives[name][axis] = (shifted[name] - current[name]) / delta
+            for target in targets.values():
+                target.location[axis] -= delta
+        for name, target in targets.items():
+            axis = max(range(3), key=lambda i: abs(derivatives[name][i]))
+            slope = derivatives[name][axis]
+            if abs(errors[name]) < 0.0005 or abs(slope) < 0.05:
+                continue
+            step = max(-0.10, min(0.10, errors[name] / slope))
+            target.location[axis] += step
+    bpy.context.view_layer.update()
+
+
+def key_pose(action_name, frames, pose_fn):
+    scene.frame_start = frames[0]
+    scene.frame_end = frames[-1]
+    bpy.ops.object.select_all(action="DESELECT")
+    arm.select_set(True)
+    bpy.context.view_layer.objects.active = arm
+    bpy.ops.object.mode_set(mode="POSE")
+    bpy.ops.pose.select_all(action="SELECT")
+    bpy.ops.object.mode_set(mode="OBJECT")
+    act = bpy.data.actions.new(action_name)
+    # Blender drops unused actions on save unless they have an owner or fake
+    # user. Each pose clip is reviewed/exported separately, so keep the whole
+    # authored set durable in the saved source file.
+    act.use_fake_user = True
+    arm.animation_data_create()
+    arm.animation_data.action = act
+    for f in frames:
+        scene.frame_set(f)
+        pose_fn(f, frames)
+        if action_name == "Spider_Walk":
+            correct_walk_stance_contact(f, frames)
+        bpy.context.view_layer.update()
+        for pb in arm.pose.bones:
+            pb.keyframe_insert(data_path="location", frame=f, group=pb.name)
+            pb.keyframe_insert(data_path="rotation_euler", frame=f, group=pb.name)
+    # Blender 5.1 stores curves inside layered Action strips; keyframe_insert
+    # creates interpolated curves with Blender's default smooth Bezier handles.
+    return act
+
+def set_bone_world_offset(pose_bone, offset):
+    # Pose location curves are in each bone's own basis. Convert intended armature-space
+    # movement so vertical lift and fore/aft stride stay on the authored world axes.
+    basis = pose_bone.bone.matrix_local.to_3x3()
+    pose_bone.location = basis.inverted() @ Vector(offset)
+def reset_goals():
+    for leg in leg_specs:
+        pb = arm.pose.bones[leg["target"]]
+        pb.location = (0, 0, 0)
+        pb.rotation_euler = (0, 0, 0)
+    body = arm.pose.bones["Body"]
+    body.location = (0, 0, 0)
+    body.rotation_euler = (0, 0, 0)
+
+def idle_pose(f, frames):
+    reset_goals()
+    t = (f - frames[0]) / (frames[-1] - frames[0])
+    set_bone_world_offset(arm.pose.bones["Body"], (0, 0, 0.012 * math.sin(t * math.tau)))
+    arm.pose.bones["Body"].rotation_euler.z = 0.018 * math.sin(t * math.tau)
+    for i, leg in enumerate(leg_specs):
+        pb = arm.pose.bones[leg["target"]]
+        set_bone_world_offset(pb, (0, 0, 0.008 * math.sin(t * math.tau + i * 0.55)))
+
+def walk_pose(f, frames):
+    reset_goals()
+    t = (f - frames[0]) / (frames[-1] - frames[0])
+    set_bone_world_offset(arm.pose.bones["Body"], (0, 0, 0))
+    arm.pose.bones["Body"].rotation_euler.z = 0.0
+    for leg in leg_specs:
+        # Alternating tripod pattern: opposing pairs trade support and swing.
+        group = (leg["row"] % 2) ^ (1 if leg["side"] > 0 else 0)
+        phase = t * math.tau + group * math.pi
+        stride = 0.075 * math.sin(phase)
+        lift = max(0.0, math.sin(phase)) ** 1.5 * 0.09
+        pb = arm.pose.bones[leg["target"]]
+        set_bone_world_offset(pb, (0, -stride, lift))
+
+def attack_pose(f, frames):
+    reset_goals()
+    t = (f - frames[0]) / (frames[-1] - frames[0])
+    anticipation = max(0.0, min(1.0, t / 0.34))
+    strike = max(0.0, min(1.0, (t - 0.34) / 0.24))
+    recover = max(0.0, min(1.0, (t - 0.58) / 0.42))
+    body = arm.pose.bones["Body"]
+    attack_body_vertical = -0.08 * anticipation + 0.10 * strike * (1 - recover)
+    set_bone_world_offset(body, (0, -0.13 * strike * (1 - recover), attack_body_vertical))
+    body.rotation_euler.x = -0.10 * strike * (1 - recover)
+    for leg in leg_specs:
+        pb = arm.pose.bones[leg["target"]]
+        if leg["row"] == 0:
+            attack_lift = 0.13 * max(0.0, min(1.0, t / 0.34))
+            set_bone_world_offset(pb, (0, -0.15 * max(0.0, min(1.0, (t - 0.34) / 0.18)), attack_lift))
+        else:
+            set_bone_world_offset(pb, (0, 0, -0.03 * anticipation))
+
+def hit_pose(f, frames):
+    reset_goals()
+    t = (f - frames[0]) / (frames[-1] - frames[0])
+    pulse = math.sin(min(1.0, t / 0.7) * math.pi) * (1.0 if t < 0.7 else 0.0)
+    body = arm.pose.bones["Body"]
+    set_bone_world_offset(body, (0, 0, 0.11 * pulse))
+    body.rotation_euler.z = 0.12 * pulse
+    body.rotation_euler.x = 0.10 * pulse
+    for leg in leg_specs:
+        set_bone_world_offset(arm.pose.bones[leg["target"]], (0, 0, 0.06 * pulse))
+
+def defeat_pose(f, frames):
+    reset_goals()
+    t = (f - frames[0]) / (frames[-1] - frames[0])
+    settle = max(0.0, min(1.0, t / 0.72))
+    body = arm.pose.bones["Body"]
+    set_bone_world_offset(body, (0, 0, -0.16 * settle))
+    body.rotation_euler.x = 0.25 * settle
+    body.rotation_euler.z = 0.10 * math.sin(t * math.pi) * settle
+    for leg in leg_specs:
+        pb = arm.pose.bones[leg["target"]]
+        defeat_vertical = -0.06 * settle
+        set_bone_world_offset(pb, (0, (-0.07 if leg["row"] in (0, 3) else 0.04) * settle, defeat_vertical))
+
+actions = [
+    key_pose("Spider_Idle", [1, 16, 31, 46, 61], idle_pose),
+    key_pose("Spider_Walk", list(range(1, 26)), walk_pose),
+    key_pose("Spider_Attack", [1, 6, 11, 16, 21, 26, 31], attack_pose),
+    key_pose("Spider_Hit", [1, 6, 11, 16, 21, 26], hit_pose),
+    key_pose("Spider_Defeat", [1, 7, 13, 19, 25, 31, 37], defeat_pose),
+]
+
+# Configure a review camera and lights for posed samples. No game engine scene
+# is edited by this asset-authoring script.
+scene.render.engine = "BLENDER_EEVEE"
+scene.render.resolution_x = 640
+scene.render.resolution_y = 640
+scene.render.resolution_percentage = 100
+scene.render.image_settings.file_format = "PNG"
+world = scene.world or bpy.data.worlds.new("SpiderReviewWorld")
+scene.world = world
+world.color = (0.075, 0.075, 0.075)
+
+def point(obj, target):
+    obj.rotation_euler = (Vector(target) - obj.location).to_track_quat("-Z", "Y").to_euler()
+
+cam_data = bpy.data.cameras.new("SpiderReviewCamera")
+cam = bpy.data.objects.new("SpiderReviewCamera", cam_data)
+scene.collection.objects.link(cam)
+cam.location = (0.0, -4.6, 0.65)
+cam.data.type = "ORTHO"
+cam.data.ortho_scale = 2.7
+point(cam, (0, 0.0, -0.05))
+scene.camera = cam
+for name, loc, energy, size in (
+    ("Key", (-3, -3, 4), 850, 4), ("Fill", (3, -1, 2), 500, 4),
+    ("Rim", (0, 3, 3), 650, 3),
+):
+    ld = bpy.data.lights.new(name, "AREA")
+    lo = bpy.data.objects.new(name, ld)
+    scene.collection.objects.link(lo)
+    lo.location = loc
+    ld.energy, ld.shape, ld.size = energy, "DISK", size
+    point(lo, (0, 0, 0))
+
+bpy.ops.wm.save_as_mainfile(filepath=os.path.join(OUT, "RainbowSpider_RigCandidate.blend"))
+
+# Render separated action poses at authored key points for deformation review.
+for action, frame in ((actions[0], 16), (actions[1], 9), (actions[2], 21),
+                      (actions[3], 11), (actions[4], 25)):
+    arm.animation_data.action = action
+    scene.frame_set(frame)
+    bpy.context.view_layer.update()
+    scene.render.filepath = os.path.join(OUT, action.name + ".png")
+    bpy.ops.render.render(write_still=True)
+
+# Export an engine-neutral GLB with one animation per authored action.
+arm.animation_data.action = actions[0]
+scene.frame_set(1)
+bpy.ops.object.select_all(action="DESELECT")
+mesh.select_set(True)
+arm.select_set(True)
+bpy.context.view_layer.objects.active = arm
+bpy.ops.export_scene.gltf(
+    filepath=os.path.join(OUT, "RainbowSpider_RigCandidate.glb"),
+    export_format="GLB", export_animations=True,
+    export_animation_mode="ACTIONS", export_skins=True,
+    export_yup=True, export_apply=False,
+)
+
+# FBX action-stack export is useful for Unity import; exporter bakes the IK.
+bpy.ops.export_scene.fbx(
+    filepath=os.path.join(OUT, "RainbowSpider_RigCandidate.fbx"),
+    use_selection=True, object_types={"ARMATURE", "MESH"},
+    add_leaf_bones=False, bake_anim=True, bake_anim_use_all_actions=True,
+    bake_anim_use_nla_strips=True, bake_anim_simplify_factor=0.0,
+)
+print(f"RIG_CANDIDATE_DONE mesh_vertices={len(verts)} bones={len(arm_data.bones)} actions={len(actions)}")
+
+
+
+
+
+

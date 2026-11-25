@@ -1,0 +1,25 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 099093e69e340fc4a975eae54a92af9c, type: 3}
+  m_Name: WorldCatalog
+  m_EditorClassIdentifier: Assembly-CSharp::SpaceAndCrafts.Core.WorldCatalog
+  worlds:
+  - {fileID: 11400000, guid: 58d0a4d743788ad4c85ae770e0610859, type: 2}
+  - {fileID: 11400000, guid: dcaf0a9d33614dc40a786f8ebed55857, type: 2}
+  - {fileID: 11400000, guid: 9d1aeb83aa0c577418337200960359d9, type: 2}
+  - {fileID: 11400000, guid: 9c17d8e2cc85a0a44a6ea891b4d4f6f3, type: 2}
+  - {fileID: 11400000, guid: bc38b62f5e6216a439869e9012105116, type: 2}
+  - {fileID: 11400000, guid: e647b479604854641bd479305a695efe, type: 2}
+  - {fileID: 11400000, guid: 9f151bb9b473a8b45970d827d0122e3d, type: 2}
+  - {fileID: 11400000, guid: a2128f4e6b8763d4592a59b6d3e03969, type: 2}
+  - {fileID: 11400000, guid: 3f2ecd0252b7b27499abd67364eefba8, type: 2}
+  - {fileID: 11400000, guid: 6d291f5dd2c005c43ac8b6b9d62940af, type: 2}

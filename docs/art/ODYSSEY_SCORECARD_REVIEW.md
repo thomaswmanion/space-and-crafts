@@ -1,0 +1,2 @@
+
+**Iteration 305 rig data inspection:** Blender's saved scene contains one 124,300-vertex body mesh with an Armature modifier targeting `Splat_SkinRig`. The mesh has 5,352 vertices with >0.35 weight on each arm group and 8,961 on each leg group; separate eye, iris, pupil, glint, and smile objects are absent. This confirms weight groups and modifier references only. It does not establish skin deformation quality or natural movement.
